@@ -4849,13 +4849,12 @@
             end})
 
             window.Tweening = true
-            Section:Label({Name = "Menu Bind"}):Keybind({Name = "Menu Bind", ShowInList = false, Callback = function(bool) 
-                if window.Tweening then
-                    return 
-                end 
-
-                window.ToggleMenu(bool) 
-            end, Default = true})
+        	Section:Label({Name = "Menu Bind"}):Keybind({Name = "Menu Bind", ShowInList = false, Key = Enum.KeyCode.RightShift, Callback = function(bool) 
+    			if window.Tweening then
+        		return 
+    		end 
+    		window.ToggleMenu(bool) 
+		end, Default = true})
 
             delay(2, function() window.Tweening = false end)
 
