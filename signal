@@ -1,0 +1,169 @@
+local function fireHandler(fn, ...)
+	local success, err = pcall(fn, ...)
+	if not success then
+		warn("Signal handler error:", err)
+	end
+end
+
+-- Connection class
+local Connection = {}
+Connection.ClassName = "Connection"
+Connection.__index = Connection
+
+export type SignalHandler<T...> = (T...) -> ()
+export type Connection<T...> = typeof(setmetatable(
+	{} :: {
+		_signal: Signal<T...>?,
+		_fn: SignalHandler<T...>?,
+		_next: Connection<T...>?,
+	},
+	{} :: typeof({ __index = Connection })
+))
+
+function Connection.new<T...>(signal: Signal<T...>, fn: SignalHandler<T...>): Connection<T...>
+	return setmetatable({
+		_signal = signal,
+		_fn = fn,
+	}, Connection) :: any
+end
+
+function Connection.IsConnected<T...>(self: Connection<T...>): boolean
+	return rawget(self :: any, "_signal") ~= nil
+end
+
+function Connection.Disconnect<T...>(self: Connection<T...>)
+	local signal = rawget(self :: any, "_signal")
+	if not signal then
+		return
+	end
+
+	local ourNext = rawget(self :: any, "_next")
+
+	if signal._handlerListHead == self then
+		signal._handlerListHead = ourNext or false
+	else
+		local prev = signal._handlerListHead
+		while prev and rawget(prev, "_next") ~= self do
+			prev = rawget(prev, "_next")
+		end
+		if prev then
+			assert(rawget(prev, "_next") == self, "Bad state")
+			rawset(prev, "_next", ourNext)
+		end
+	end
+
+	table.clear(self :: any)
+end
+
+Connection.Destroy = Connection.Disconnect
+
+setmetatable(Connection, {
+	__index = function(_, key)
+		error(string.format("Attempt to get Connection::%s (not a valid member)", tostring(key)), 2)
+	end,
+	__newindex = function(_, key, _)
+		error(string.format("Attempt to set Connection::%s (not a valid member)", tostring(key)), 2)
+	end,
+})
+
+-- Signal class
+local Signal = {}
+Signal.ClassName = "Signal"
+Signal.__index = Signal
+
+export type Signal<T...> = typeof(setmetatable(
+	{} :: {
+		_handlerListHead: Connection<T...> | false,
+	},
+	{} :: typeof({ __index = Signal })
+))
+
+function Signal.new<T...>(): Signal<T...>
+	return setmetatable({
+		_handlerListHead = false,
+	}, Signal) :: any
+end
+
+function Signal.isSignal(value: any): boolean
+	return type(value) == "table" and getmetatable(value) == Signal
+end
+
+function Signal.Connect<T...>(self: Signal<T...>, fn: SignalHandler<T...>): Connection<T...>
+	local connection = Connection.new(self, fn)
+	if self._handlerListHead then
+		rawset(connection :: any, "_next", self._handlerListHead)
+		self._handlerListHead = connection
+	else
+		self._handlerListHead = connection
+	end
+	return connection
+end
+
+function Signal.GetConnectionCount<T...>(self: Signal<T...>): number
+	local n = 0
+	local prev: any = self._handlerListHead
+	while prev do
+		n += 1
+		prev = rawget(prev, "_next")
+	end
+	return n
+end
+
+function Signal.DisconnectAll<T...>(self: Signal<T...>): ()
+	while self._handlerListHead do
+		local last = self._handlerListHead
+		last:Disconnect()
+		assert(self._handlerListHead ~= last, "self._handlerListHead should not be last")
+	end
+	self._handlerListHead = false
+end
+
+function Signal.Fire<T...>(self: Signal<T...>, ...: T...): ()
+	local connection: any = self._handlerListHead
+	while connection do
+		local nextNode = rawget(connection, "_next")
+
+		if rawget(connection, "_signal") ~= nil then -- isConnected
+			local fn = rawget(connection, "_fn")
+			if fn then
+				fireHandler(fn, ...)
+			end
+		end
+
+		connection = nextNode
+	end
+end
+
+function Signal.Wait<T...>(self: Signal<T...>): T...
+	local waitingCoroutine = coroutine.running()
+
+	local connection: Connection<T...>
+	connection = (self :: any):Connect(function(...)
+		connection:Disconnect()
+		task.spawn(waitingCoroutine, ...)
+	end)
+
+	return coroutine.yield()
+end
+
+function Signal.Once<T...>(self: Signal<T...>, fn: SignalHandler<T...>): Connection<T...>
+	local connection: Connection<T...>
+	connection = (self :: any):Connect(function(...)
+		connection:Disconnect()
+		fn(...)
+	end)
+	return connection
+end
+
+Signal.Destroy = Signal.DisconnectAll
+
+setmetatable(Signal, {
+	__index = function(_, key)
+		error(string.format("Attempt to get Signal::%s (not a valid member)", tostring(key)), 2)
+	end,
+	__newindex = function(_, key, _)
+		error(string.format("Attempt to set Signal::%s (not a valid member)", tostring(key)), 2)
+	end,
+})
+
+return Signal
