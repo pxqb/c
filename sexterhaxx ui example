@@ -1,6 +1,6 @@
 -- not my code
 getgenv().Config = {
-	Invite = "Vaderhaxx [shitty version]",
+	Invite = "informant.wtf",
 	Version = "0.0",
 }
 
@@ -8,12 +8,12 @@ getgenv().luaguardvars = {
 	DiscordName = "username#0000",
 }
 
-local library = getgenv().library
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/pxqb/c/refs/heads/main/sexterhaxx%20ui%20example"))()
 
 library:init()
 
 local Window = library.NewWindow({
-	title = "Vaderhaxx [shitty version]",
+	title = "Informant.Wtf",
 	size = UDim2.new(0, 525, 0, 650)
 })
 
