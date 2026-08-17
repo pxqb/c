@@ -450,59 +450,30 @@ do
             MouseEnter = library.signal.new();
             MouseLeave = library.signal.new();
             Class = class;
-            -- Caching for performance
-            _cachedAbsSize = nil;
-            _cachedAbsPos = nil;
-            _lastParentVis = nil;
         }
 
         function drawing:Update()
-            local parent = drawing.Parent ~= nil and library.drawings[drawing.Parent.Object] or nil
-            local parentSize, parentPos, parentVis = workspace.CurrentCamera.ViewportSize, Vector2.new(0,0), true;
-            if parent ~= nil then
-                parentSize = (parent.Class == 'Square' or parent.Class == 'Image') and parent.Object.Size or parent.Class == 'Text' and parent.TextBounds or workspace.CurrentCamera.ViewportSize
-                parentPos = parent.Object.Position
-                parentVis = parent.Object.Visible
-            end
-
-            local newSize, newPos;
-            local sizeChanged = false, posChanged = false;
-
-            if drawing.Class == 'Square' or drawing.Class == 'Image' then
-                newSize = typeof(drawing.Size) == 'Vector2' and drawing.Size or utility:UDim2ToVector2(drawing.Size,parentSize)
-                if drawing._cachedAbsSize == nil or drawing._cachedAbsSize ~= newSize then
-                    sizeChanged = true
-                    drawing._cachedAbsSize = newSize
+            -- if drawing.Parent then
+                local parent = drawing.Parent ~= nil and library.drawings[drawing.Parent.Object] or nil
+                local parentSize,parentPos,parentVis = workspace.CurrentCamera.ViewportSize, Vector2.new(0,0), true;
+                if parent ~= nil then
+                    parentSize = (parent.Class == 'Square' or parent.Class == 'Image') and parent.Object.Size or parent.Class == 'Text' and parent.TextBounds or workspace.CurrentCamera.ViewportSize
+                    parentPos = parent.Object.Position
+                    parentVis = parent.Object.Visible
                 end
-            end
 
-            if drawing.Class == 'Square' or drawing.Class == 'Image' or drawing.Class == 'Circle' or drawing.Class == 'Text' then
-                newPos = parentPos + (typeof(drawing.Position) == 'Vector2' and drawing.Position or utility:UDim2ToVector2(drawing.Position,parentSize))
-                if drawing._cachedAbsPos == nil or drawing._cachedAbsPos ~= newPos then
-                    posChanged = true
-                    drawing._cachedAbsPos = newPos
+                if drawing.Class == 'Square' or drawing.Class == 'Image' then
+                    drawing.Object.Size = typeof(drawing.Size) == 'Vector2' and drawing.Size or typeof(drawing.Size) == 'UDim2' and utility:UDim2ToVector2(drawing.Size,parentSize)
                 end
-            end
 
-            if sizeChanged then
-                drawing.Object.Size = newSize
-            end
-            if posChanged then
-                drawing.Object.Position = newPos
-            end
+                if drawing.Class == 'Square' or drawing.Class == 'Image' or drawing.Class == 'Circle' or drawing.Class == 'Text' then
+                    drawing.Object.Position = parentPos + (typeof(drawing.Position) == 'Vector2' and drawing.Position or utility:UDim2ToVector2(drawing.Position,parentSize))
+                end
 
-            local newVis = (parentVis and drawing.Visible) and true or false
-            if drawing.Object.Visible ~= newVis then
-                drawing.Object.Visible = newVis
-                -- visibility change also requires children update (because they depend on parent visibility)
-                -- we'll just force an update by setting posChanged or sizeChanged? Actually children will update when we call UpdateChildren below, but they check their own visibility.
-            end
+                drawing.Object.Visible = (parentVis and drawing.Visible) and true or false
 
-            -- Update children if any property that affects children changed
-            if sizeChanged or posChanged or drawing._lastParentVis ~= parentVis then
-                drawing._lastParentVis = parentVis
-                drawing:UpdateChildren()
-            end
+            -- end
+            drawing:UpdateChildren()
         end
 
         function drawing:UpdateChildren()
@@ -525,7 +496,7 @@ do
 
         library.drawings[drawing.Object] = drawing
 
-        -- proxy
+        -- this is really stupid lol
         local proxy = utility:DetectTableChange(
         function(obj,i)
             return drawing[i] == nil and drawing.Object[i] or drawing[i]
@@ -1369,10 +1340,7 @@ function library:init()
                 ZIndex = z+2;
             })
 
-            -- DRAG LOGIC - OPTIMIZED (once per frame)
-            local dragging = false;
-            local mouseStart = nil;
-            local objStart = nil;
+            local dragging, mouseStart, objStart;
 
             utility:Connection(objs.dragdetector.MouseButton1Down, function(pos)
                 dragging = true;
@@ -1384,13 +1352,20 @@ function library:init()
                 dragging = false;
             end)
 
-            -- Update position once per frame via RenderStepped
-            utility:Connection(runservice.RenderStepped, function()
-                if dragging and window.open then
-                    local currentPos = inputservice:GetMouseLocation()
-                    objs.background.Position = objStart + newUDim2(0, currentPos.X, 0, currentPos.Y) - mouseStart;
-                elseif dragging and not window.open then
-                    dragging = false;
+            local lastDragUpdate = 0
+            local throttleInterval = 0.016 -- ~60 hz cause uncapped fucks fps
+
+            utility:Connection(mousemove, function(pos)
+                if dragging then
+                    if window.open then
+                        local now = tick()
+                        if now - lastDragUpdate >= throttleInterval then
+                            lastDragUpdate = now
+                            objs.background.Position = objStart + newUDim2(0, pos.X, 0, pos.Y) - mouseStart;
+                        end
+                    else
+                        dragging = false
+                    end
                 end
             end)
 
@@ -1458,7 +1433,7 @@ function library:init()
 
                 objs.sat1 = utility:Draw('Image', {
                     Size = newUDim2(1,0,1,0);
-                    Data = crypt.base64.decode"iVBORw0KGgoAAAANSUhEUgAAAaQAAAGkCAQAAADURZm+AAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JQAAgIMAAPn/AACA6QAAdTAAAOpgAAA6mAAAF2+SX8VGAAAAAmJLR0QA/4ePzL8AAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQflBwwSLzK3wl3KAAADrElEQVR42u3TORLCMBBFwT+6/50hMqXSZwonBN0BWCDGYPwqeSWVZPWYVHd0Pc5H86v9areu4Sz9u7XZXT/vvtZtu6dtJtYw525iGya05afnWW17ltPE8fzfTZy/yf3vmCes59xf0Sf/42l3lnvGOyyH+y/bo/X689wCPCYkEBIICYQECAmEBEICIQFCAiGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEguAQgJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEiAkEBIICYQECAmEBEICIQFCAiGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEICIQFCAiGBkEBILgEICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEiAkEBL8lzft9AVFFzN+ywAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyMS0wNy0xMlQxODo0Nzo1MCswMDowMIxlM90AAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjEtMDctMTJUMTg6NDc6NTArMDA6MDD9OIthAAAAAElFTkSuQmCC";
+                    Data = crypt.base64.decode"iVBORw0KGgoAAAANSUhEUgAAAaQAAAGkCAQAAADURZm+AAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JQAAgIMAAPn/AACA6QAAdTAAAOpgAAA6mAAAF2+SX8VGAAAAAmJLR0QA/4ePzL8AAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQflBwwSLzK3wl3KAAADrElEQVR42u3TORLCMBBFwT+6/50hMqXSZgonBN0BWCDGYPwqeSWVZPWYVHd0Pc5H86v9areu4Sz9u7XZXT/vvtZtu6dtJtYw525iGya05afnWW17ltPE8fzfTZy/yf3vmCes59xf0Sf/42l3lnvGOyyH+y/bo/X689wCPCYkEBIICYQECAmEBEICIQFCAiGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEguAQgJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEiAkEBIICYQECAmEBEICIQFCAiGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEICIQFCAiGBkEBILgEICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEiAkEBL8lzft9AVFFzN+ywAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyMS0wNy0xMlQxODo0Nzo1MCswMDowMIxlM90AAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjEtMDctMTJUMTg6NDc6NTArMDA6MDD9OIthAAAAAElFTkSuQmCC";
                     ZIndex = z+3;
                     Parent = objs.mainColor;
                 })
@@ -2908,6 +2883,7 @@ function library:init()
                                     window.dropdown:Refresh();
                                 end
                             end)
+    
     
                         end
                         --------------------
